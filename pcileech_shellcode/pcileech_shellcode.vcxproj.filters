@@ -31,6 +31,9 @@
     <Filter Include="Source Files\driver">
       <UniqueIdentifier>{6f2a8f51-7e58-4913-9be5-0efa279dbe3a}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\vfs">
+      <UniqueIdentifier>{fbf1519d-9768-4c2e-9bf2-c4a5f13a5f62}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="lx64_common.c">
@@ -111,6 +114,15 @@
     <ClCompile Include="wx64_stage3_c.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="lx64_vfs.c">
+      <Filter>Source Files\vfs</Filter>
+    </ClCompile>
+    <ClCompile Include="macos_vfs.c">
+      <Filter>Source Files\vfs</Filter>
+    </ClCompile>
+    <ClCompile Include="wx64_vfs.c">
+      <Filter>Source Files\vfs</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="lx64_common_a.asm">
@@ -169,6 +181,9 @@
     </None>
     <None Include="fbsdx64_common_a.asm">
       <Filter>Source Files</Filter>
+    </None>
+    <None Include="lx64_stage2_efi.asm">
+      <Filter>Source Files\kmd_core</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>

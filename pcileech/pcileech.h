@@ -1,59 +1,16 @@
 // pcileech.h : definitions for pcileech - dump memory and unlock computers with a USB3380 device using DMA.
 //
-// (c) Ulf Frisk, 2016
+// (c) Ulf Frisk, 2016, 2017
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 #ifndef __PCILEECH_H__
 #define __PCILEECH_H__
-#include <windows.h>
-#include <stdio.h>
-#include <winusb.h>
-#include <setupapi.h>
-
-#pragma comment (lib, "winusb.lib")
-#pragma comment (lib, "setupapi.lib")
-#pragma comment (lib, "crypt32.lib")
-#pragma comment (lib, "bcrypt.lib")
-
-#pragma warning( disable : 4477)
+#include "oscompatibility.h"
 
 #define SIZE_PAGE_ALIGN_4K(x)				((x + 0xfff) & ~0xfff)
 #define CONFIG_MAX_SIGNATURES		        16
-typedef unsigned __int64					QWORD;
-typedef QWORD near							*PQWORD;
-
-// Device Interface GUID. Must match "DeviceInterfaceGUIDs" registry value specified in the INF file.
-// F72FE0D4-CBCB-407d-8814-9ED673D0DD6B
-DEFINE_GUID(GUID_DEVINTERFACE_android, 0xF72FE0D4, 0xCBCB, 0x407d, 0x88, 0x14, 0x9E, 0xD6, 0x73, 0xD0, 0xDD, 0x6B);
-
-typedef struct _DEVICE_DATA {
-	BOOL HandlesOpen;
-	BOOL IsAllowedMultiThreadDMA;
-	BOOL IsAllowedAccessReservedAddress;
-	QWORD MaxSizeDmaIo;
-	WINUSB_INTERFACE_HANDLE WinusbHandle;
-	HANDLE DeviceHandle;
-	WCHAR DevicePath[MAX_PATH];
-	UCHAR PipePciIn;
-	UCHAR PipePciOut;
-	UCHAR PipeCsrIn;
-	UCHAR PipeCsrOut;
-	UCHAR PipeDmaOut;	//GPEP0
-	UCHAR PipeDmaIn1;	//GPEP1
-	UCHAR PipeDmaIn2;	//GPEP2
-	UCHAR PipeDmaIn3;	//GPEP3
-	HANDLE KMDHandle;
-} DEVICE_DATA, *PDEVICE_DATA;
 
 #pragma pack(push, 1) /* DISABLE STRUCT PADDINGS (REENABLE AFTER STRUCT DEFINITIONS) */
-typedef struct tdPipeSendCsrWrite {
-	UCHAR u1;
-	UCHAR u2;
-	UCHAR u3;
-	UCHAR u4;
-	DWORD dwRegValue;
-} PIPE_SEND_CSR_WRITE;
-
 typedef struct tdSignaturePTE {
 	WORD cPages;
 	WORD wSignature;
@@ -67,22 +24,34 @@ typedef enum tdActionType {
 	WRITE,
 	PATCH,
 	SEARCH,
-	FLASH,
-	START8051,
-	STOP8051,
+	USB3380_FLASH,
+	USB3380_START8051,
+	USB3380_STOP8051,
 	PAGEDISPLAY,
 	TESTMEMREAD,
 	TESTMEMREADWRITE,
 	KMDLOAD,
 	KMDEXIT,
 	EXEC,
-	MAC_FVRECOVER
-} ACTION_TYPE, PACTION_TYPE;
+	MOUNT,
+	MAC_FVRECOVER,
+	MAC_FVRECOVER2,
+	MAC_DISABLE_VTD,
+	PT_PHYS2VIRT,
+	TLP
+} ACTION_TYPE;
+
+typedef enum tdPCILEECH_DEVICE_TYPE {
+	PCILEECH_DEVICE_NA,
+	PCILEECH_DEVICE_USB3380,
+	PCILEECH_DEVICE_SP605
+} PCILEECH_DEVICE_TYPE;
 
 #define CONFIG_MAX_INSIZE 0x400000 // 4MB
 typedef struct tdConfig {
 	QWORD qwAddrMin;
 	QWORD qwAddrMax;
+	QWORD qwAddrMaxDeviceNative;
 	QWORD qwCR3;
 	QWORD qwKMD;
 	CHAR szFileOut[MAX_PATH];
@@ -91,10 +60,12 @@ typedef struct tdConfig {
 	CHAR szInS[MAX_PATH];
 	QWORD qwDataIn[10];
 	ACTION_TYPE tpAction;
+	PCILEECH_DEVICE_TYPE tpDevice;
 	CHAR szSignatureName[MAX_PATH];
 	CHAR szKMDName[MAX_PATH];
 	CHAR szShellcodeName[MAX_PATH];
 	QWORD qwMaxSizeDmaIo;
+	QWORD qwWaitBeforeExit;
 	BOOL fPageTableScan;
 	BOOL fPatchAll;
 	BOOL fForceRW;
@@ -102,6 +73,9 @@ typedef struct tdConfig {
 	BOOL fOutFile;
 	BOOL fForceUsb2;
 	BOOL fVerbose;
+	BOOL fVerboseExtra;
+	BOOL fDebug;
+	BOOL fPartialPageReadSupported;
 } CONFIG, *PCONFIG;
 
 #define SIGNATURE_CHUNK_TP_OFFSET_FIXED		0
@@ -131,8 +105,8 @@ typedef struct tdSignature {
 	SIGNATURE_CHUNK chunk[6];
 } SIGNATURE, *PSIGNATURE;
 
-#pragma pack(push, 1) /* DISABLE STRUCT PADDINGS (REENABLE AFTER STRUCT DEFINITIONS) */
 #define KMDEXEC_MAGIC 0x3cec1337
+#pragma pack(push, 1) /* DISABLE STRUCT PADDINGS (REENABLE AFTER STRUCT DEFINITIONS) */
 typedef struct tdKmdExec {
 	DWORD dwMagic;
 	BYTE pbChecksumSHA256[32];
@@ -178,7 +152,7 @@ typedef struct tdKMDDATA {
 	QWORD DMAAddrVirtual;			// [0x028] virtual address of DMA buffer.
 	QWORD _status;					// [0x030] status of operation
 	QWORD _result;					// [0x038] result of operation TRUE|FALSE
-	QWORD _address;					// [0x040] virtual address to operate on.
+	QWORD _address;					// [0x040] address to operate on.
 	QWORD _size;					// [0x048] size of operation / data in DMA buffer.
 	QWORD OperatingSystem;			// [0x050] operating system type
 	QWORD ReservedKMD;				// [0x058] reserved for specific kmd data (dependant on KMD version).
@@ -211,8 +185,15 @@ typedef struct tdKMDHANDLE {
 	DWORD dwPageAddr32;
 	QWORD cPhysicalMap;
 	PPHYSICAL_MEMORY_RANGE pPhysicalMap;
-	PKMDDATA status;
+	PKMDDATA pk;
 	BYTE pbPageData[4096];
 } KMDHANDLE, *PKMDHANDLE;
+
+typedef struct tdPCILEECH_CONTEXT {
+	PCONFIG cfg;
+	HANDLE hDevice;
+	PKMDHANDLE phKMD;
+	PKMDDATA pk;
+} PCILEECH_CONTEXT, *PPCILEECH_CONTEXT;
 
 #endif /* __PCILEECH_H__ */
